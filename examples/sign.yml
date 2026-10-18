@@ -1,6 +1,6 @@
-# Signing workflow template. Inert while it lives in examples/: move it to
-# .github/workflows/sign.yml once the initial review is approved, then adapt
-# the build and the signing steps.
+# Signing workflow template. Move it to .github/workflows/sign.yml
+# once the initial review is approved, then adapt the build and
+# the signing steps.
 #
 # Mirror repository workflow for an Electron app packaged with electron-builder.
 #
@@ -13,15 +13,15 @@
 # small sign hook written below. That covers the app executable, the
 # uninstaller and the NSIS installer in one build.
 #
-#   [REQUIRED]  the server or the review depends on it; keep it as is
-#   [ADAPT]     project specific; replace freely
+#   [DO NOT CHANGE]  the server or the review depends on it; keep it as is
+#   [CHANGE ME]     project specific; replace freely
 #   [OPTIONAL]  can be removed without affecting the server
 
 name: Sign release
 
-run-name: "Sign ${{ inputs.ref }} [${{ inputs.dispatch_id }}]"      # [REQUIRED]
+run-name: "Sign ${{ inputs.ref }} [${{ inputs.dispatch_id }}]"      # [DO NOT CHANGE]
 
-on:                                                                 # [REQUIRED] all four inputs
+on:                                                                 # [DO NOT CHANGE] all four inputs
   workflow_dispatch:
     inputs:
       ref:
@@ -38,66 +38,33 @@ on:                                                                 # [REQUIRED]
         required: true
 
 env:
-  # [REQUIRED] Repository variables. SOURCE_REPO and OSSIGN_SERVER are set by
-  # ossign-server during onboarding; add OSSIGN_KEY (the key name on the
+  # [DO NOT CHANGE] Repository variables. SOURCE_REPO and OSSIGN_SERVER are set
+  # automatically during onboarding; add OSSIGN_KEY (the key name on the
   # server) under Settings → Secrets and variables → Actions → Variables.
   SOURCE_REPO: ${{ vars.SOURCE_REPO }}
   OSSIGN_SERVER: ${{ vars.OSSIGN_SERVER }}
   OSSIGN_KEY: ${{ vars.OSSIGN_KEY }}
 
-permissions:                                                    # [REQUIRED] id-token: write
+# [DO NOT CHANGE] id-token: write gives the job its OIDC token (signing and the report fetch).
+# contents: write is only needed by the release step at the bottom.
+permissions:
   contents: write
   id-token: write
 
 jobs:
-  # [REQUIRED] when the rule has a scanner step, otherwise [OPTIONAL].
-  # Identical to mirror-signing.yml; see the markers there.
-  prepare:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out the pinned source commit                 # [REQUIRED]
-        run: |
-          git init src
-          cd src
-          git remote add origin "$SOURCE_REPO"
-          git fetch --depth 1 origin "${{ inputs.sha }}"
-          git checkout --detach FETCH_HEAD
-          test "$(git rev-parse HEAD)" = "${{ inputs.sha }}"
-
-      - name: gitleaks                                           # [ADAPT]
-        run: |
-          curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz | tar xz gitleaks
-          ./gitleaks dir src --report-format json --report-path gitleaks.json --exit-code 0 --no-banner
-          test -s gitleaks.json || echo '[]' > gitleaks.json
-
-      - name: osv-scanner                                        # [ADAPT] reads package-lock.json / yarn.lock
-        run: |
-          curl -sSL -o osv-scanner https://github.com/google/osv-scanner/releases/download/v1.9.1/osv-scanner_linux_amd64
-          chmod +x osv-scanner
-          ./osv-scanner scan --recursive --format json --output osv.json src || true
-          test -s osv.json || echo '{"results":[]}' > osv.json
-
-      - name: Upload scanner reports to the review               # [REQUIRED]
-        run: |
-          OIDC=$(curl -sS -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=$OSSIGN_SERVER" | jq -r .value)
-          jq -n --arg sha "${{ inputs.sha }}" \
-                --rawfile gitleaks gitleaks.json --rawfile osv osv.json \
-                '{sha: $sha, uploads: [
-                   {tool: "gitleaks",    format: "json", content: $gitleaks},
-                   {tool: "osv-scanner", format: "json", content: $osv}]}' > uploads.json
-          curl -sS --fail -X POST -H "Authorization: Bearer $OIDC" -H "Content-Type: application/json" \
-            --data @uploads.json "$OSSIGN_SERVER/api/v1/reviews/${{ inputs.dispatch_id }}/uploads"
+  # The review scans the pinned commit on the server (the ossign-scanner
+  # service) before this job's environment is released, so the workflow has
+  # no scanning job of its own. Which scanners run is part of the review
+  # rule, not of this file.
 
   sign:
-    needs: prepare                                               # [REQUIRED] when prepare exists
-    runs-on: windows-latest                                      # [ADAPT] NSIS installers build on Windows
-    environment: signing                                         # [REQUIRED]
+    runs-on: windows-latest                                      # [CHANGE ME] NSIS installers build on Windows
+    environment: signing                                         # [DO NOT CHANGE]
     defaults:
       run:
         shell: bash
     steps:
-      - name: Check out the pinned source commit                 # [REQUIRED]
+      - name: Check out the pinned source commit                 # [DO NOT CHANGE]
         run: |
           git init src
           cd src
@@ -106,13 +73,13 @@ jobs:
           git checkout --detach FETCH_HEAD
           test "$(git rev-parse HEAD)" = "${{ inputs.sha }}"
 
-      - uses: actions/setup-node@v4                              # [ADAPT]
+      - uses: actions/setup-node@v4                              # [CHANGE ME]
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: src/package-lock.json
 
-      # [REQUIRED] Install the CLI and write its configuration once. Nothing is
+      # [DO NOT CHANGE] Install the CLI and write its configuration once. Nothing is
       # signed here; electron-builder does that through the hook below. The
       # config lands in the user's ossign config directory, which the CLI reads
       # by default, so the hook needs no path. This step and every later ossign
@@ -127,7 +94,7 @@ jobs:
               "ossignServer": { "url": "${{ env.OSSIGN_SERVER }}", "key": "${{ env.OSSIGN_KEY }}",
                                 "metadata": { "dispatch": "${{ inputs.dispatch_id }}", "sha": "${{ inputs.sha }}" } } }
 
-      # [REQUIRED] The sign hook electron-builder calls for each PE file: the
+      # [DO NOT CHANGE] The sign hook electron-builder calls for each PE file: the
       # app executable, the uninstaller and the installer. It runs the ossign
       # CLI in place. Kept in the mirror repository's workflow, not in the
       # third party's source, so they cannot change what gets signed.
@@ -148,11 +115,11 @@ jobs:
           };
           JS
 
-      - name: Install dependencies                               # [ADAPT]
+      - name: Install dependencies                               # [CHANGE ME]
         working-directory: src
         run: npm ci
 
-      # [ADAPT] The build. What must stay: the sign hook wired into
+      # [CHANGE ME] The build. What must stay: the sign hook wired into
       # electron-builder and CSC_IDENTITY_AUTO_DISCOVERY=false so it does not
       # look for a local certificate. electron-builder 26 and later use
       # win.signtoolOptions.sign; versions before 26 use win.sign instead.
